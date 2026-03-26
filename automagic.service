@@ -1,0 +1,15 @@
+[Unit]
+Description=Automagic Automation Daemon
+After=network.target dbus.socket
+Wants=dbus.socket
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/sbin/automagicd
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
