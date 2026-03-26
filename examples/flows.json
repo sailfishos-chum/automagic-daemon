@@ -1,0 +1,442 @@
+{
+  "version": 1,
+  "data": [
+    {
+      "id": "startup_greeting",
+      "name": "Startup Greeting",
+      "enabled": true,
+      "triggers": ["startup_timer"],
+      "steps": [
+        {
+          "id": "notify_step",
+          "type": "action",
+          "action": "send_notification",
+          "params": {
+            "summary": "Automagic",
+            "body": "Automagic is online and ready."
+          },
+          "goto_alt": "end"
+        }
+      ]
+    },
+    {
+      "id": "startup_states",
+      "name": "Startup States",
+      "enabled": true,
+      "triggers": ["startup_timer"],
+      "steps": [
+        {
+          "id": "step_1",
+          "type": "action",
+          "function": "set_state",
+          "params": {
+            "name": "automagic_ready",
+            "static": true
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_2",
+          "type": "get",
+          "source": "battery_status",
+          "mapping": { "battery_level": "battery_level" },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_3",
+          "type": "action",
+          "function": "set_state",
+          "params": {
+            "name": "battery_level",
+            "variable": "battery_level",
+          "goto_alt": "end"
+          }
+        },
+        {
+          "id": "step_4",
+          "type": "get",
+          "function": "time",
+          "mapping": { "hour": "start_hour", "minute": "start_minute", "second": "start_second" },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_5",
+          "type": "action",
+          "function": "set_state",
+          "params": {
+            "name": "startup_time",
+            "template": "{{start_hour}}:{{start_minute}}:{{start_second}}"
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_6",
+          "type": "get",
+          "source": "dbus_hostname",
+          "mapping": { "dbus_host": "dbus_host" },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_7",
+          "type": "action",
+          "function": "set_state",
+          "params": {
+            "name": "dbus_host",
+            "variable": "dbus_host"
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_8",
+          "type": "get",
+          "source": "system_hostname",
+          "mapping": { "hostname": "hostname" },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_9",
+          "type": "action",
+          "function": "set_state",
+          "params": {
+            "name": "hostname",
+            "variable": "hostname"
+          },
+          "goto_alt": "end"
+        }
+      ]
+    },
+    {
+      "id": "battery_sync",
+      "name": "Sync Battery State",
+      "enabled": true,
+      "triggers": ["battery_signal"],
+      "steps": [
+        {
+          "id": "save_state",
+          "type": "action",
+          "function": "set_state",
+          "params": {
+            "name": "battery_level",
+            "variable": "battery_level"
+          },
+          "goto_alt": "end"
+        }
+      ]
+    },
+    {
+      "id": "media_player_sync",
+      "name": "Sync MediaPlayer State",
+      "enabled": true,
+      "triggers": ["media_player_status"],
+      "steps": [
+        {
+          "id": "save_state",
+          "type": "action",
+          "if": [
+            {
+              "left_var": "media_player_status",
+              "op": "!=",
+              "right_const": null
+            }
+          ],
+          "function": "set_state",
+          "params": {
+            "name": "media_player_status",
+            "variable": "media_player_status"
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "save_track_title",
+          "type": "action",
+          "if": [
+            {
+              "left_var": "track_title",
+              "op": "!=",
+              "right_const": null
+            }
+          ],
+          "function": "set_state",
+          "params": {
+            "name": "media_player_track_title",
+            "variable": "track_title"
+          },
+          "goto_alt": "end"
+        }
+      ]
+    },
+    {
+      "id": "incoming_sms_sync",
+      "name": "Handle Incoming SMS",
+      "enabled": true,
+      "triggers": ["incoming_sms"],
+      "steps": [
+        {
+          "id": "save_sms_text",
+          "type": "action",
+          "if": [
+            {
+              "left_var": "sms_text",
+              "op": "!=",
+              "right_const": null
+            }
+          ],
+          "function": "set_state",
+          "params": {
+            "name": "last_sms_text",
+            "variable": "sms_text"
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "save_sms_sender",
+          "type": "action",
+          "if": [
+            {
+              "left_var": "sms_sender",
+              "op": "!=",
+              "right_const": null
+            }
+          ],
+          "function": "set_state",
+          "params": {
+            "name": "last_sms_sender",
+            "variable": "sms_sender"
+          },
+          "goto_alt": "end"
+        }
+      ]
+    },
+    {
+      "id": "send_sms",
+      "name": "Send Status SMS",
+      "enabled": false,
+      "triggers": ["startup_timer"],
+      "steps": [
+        {
+          "id": "send_step",
+          "type": "action",
+          "action": "send_sms",
+          "params": {
+            "number": "+447360251784",
+            "text": "Automagic is online and ready."
+          },
+          "goto_alt": "end"
+        }
+      ]
+    },
+    {
+      "id": "poll_web_status",
+      "name": "Poll Web Status",
+      "enabled": true,
+      "triggers": ["timer_15m"],
+      "steps": [
+        {
+          "id": "step_1",
+          "type": "get",
+          "source": "web_status",
+          "mapping": {
+            "web_status": "web_status"
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_2",
+          "type": "branch",
+          "if": [
+            {
+              "op": "==",
+              "left_var": "web_status",
+              "right_const": 42
+            }
+          ],
+          "goto": "step_4",
+          "goto_alt": "step_10"
+        },
+        {
+          "id": "step_3",
+          "type": "wait",
+          "params": {
+            "duration": "10s"
+          }
+        },
+        {
+          "id": "step_4",
+          "type": "action",
+          "function": "set_state",
+          "params": {
+            "name": "remote_web_status",
+            "variable": "web_status"
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_5",
+          "type": "math",
+          "params": {
+            "in": "1.54321 + 1.75 - {{web_status}}",
+            "out": "calculated_value",
+            "decimals": 2
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_6",
+          "type": "round",
+          "params": {
+            "in": "calculated_value",
+            "out": "rounded_value",
+            "decimals": 2
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_7",
+          "type": "action",
+          "action": "log",
+          "params": {
+            "message": "Web API status was 42 but we changed it to {{rounded_value}}"
+          }
+        },
+        {
+          "id": "step_8",
+          "type": "action",
+          "action": "post_to_api",
+          "params": {
+            "value": "{{rounded_value}}"
+          },
+          "goto_alt": "end"
+        },
+         {
+          "type": "action",
+          "action": "mqtt_publish",
+          "params": {
+            "topic": "telemetry/rounded_value",
+            "payload": "Value: {{rounded_value}}",
+            "qos": 0
+          },
+          "goto": "end",
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_10",
+          "type": "action",
+          "action": "log",
+          "params": {
+            "message": "Web API status was not 42, but {{web_status}}."
+          },
+          "goto": "end",
+          "goto_alt": "end"
+        }
+
+      ]
+    },
+    {
+      "id": "process_rtl433_data",
+      "name": "Update State & Store Weather Data",
+      "enabled": true,
+      "triggers": ["temperature_humidity"],
+      "steps": [
+        {
+          "id": "step_0_gatekeeper",
+          "type": "throttle",
+          "goto_alt": "end",
+          "params": {
+            "duration": "41s",
+            "scope": ["sensor_id"]
+          }
+        },
+        {
+          "id": "step_1",
+          "type": "action",
+          "if": [
+            {
+              "op": "==",
+              "left_var": "sensor_id",
+              "right_const": "outside_3"
+            }
+          ],
+          "function": "set_state",
+          "params": {
+            "name": "state_{{sensor_id}}_temperature",
+            "variable": "temperature"
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_2",
+          "type": "action",
+          "if": [
+            {
+              "op": "==",
+              "left_var": "sensor_id",
+              "right_const": "outside_3"
+            }
+          ],
+          "function": "set_state",
+          "params": {
+            "name": "state_{{sensor_id}}_humidity",
+            "variable": "humidity"
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_3",
+          "type": "action",
+          "action": "write_data_temperature_humidity",
+          "params": {
+            "_data_record_name": "{{sensor_id}}",
+            "temperature": "{{temperature}}",
+            "humidity": "{{humidity}}"
+          },
+          "goto_alt": "end"
+        },
+        {
+          "id": "step_4",
+          "type": "action",
+          "action": "log",
+          "params": {
+            "message": "Processed {{sensor_id}} - data: {{temperature}}°C, {{humidity}}%."
+          },
+          "goto_alt": "end"
+        }
+      ]
+    },
+    {
+      "id": "process_mail",
+      "name": "Process Email",
+      "enabled": true,
+      "triggers": ["startup_timer"],
+      "steps": [
+        {
+          "id": "step_1",
+          "type": "get",
+          "source": "imap_source"
+        },
+        {
+          "id": "step_2",
+          "type": "action",
+          "action": "log",
+          "params": {
+            "message": "Processed email uid: {{email_uid}}"
+          }
+        },
+        {
+          "id": "step_3",
+          "if": [
+            {
+              "op": "!=",
+              "left_var": "email_uid",
+              "right_const": null
+            }
+          ],
+          "type": "action",
+          "action": "email_mark_seen",
+          "params": {
+            "uid": "{{email_uid}}"
+          }
+        }
+      ]
+    }
+  ]
+}

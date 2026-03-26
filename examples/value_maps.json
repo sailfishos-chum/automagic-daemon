@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "data": {
+    "devices": {
+      "1000dbd17c": "light_dimmer_1",
+      "1000f8cba0": "light_corridor_2",
+      "1000f8cfeb": "light_corridor_1",
+      "1000f9562a": "light_bedroom_1",
+      "1000f95f71": "light_outside_1",
+      "1000f9da39": "light_kitchen",
+      "1000fa24cb": "light_laundry",
+      "1000fa53d4": "light_conservatory",
+      "1000fa957f": "light_bedroom_3",
+      "1000fa974e": "light_bedroom_2",
+      "10014a52b6": "light_dimmable",
+      "10015f004b": "light_rgb_1",
+      "10018a67d7": "fan_bathroom",
+      "10018a6889": "light_bathroom",
+      "10018a6a1b": "light_outside_2"
+    },
+    "sensors": {
+      "Acurite-6045M_212_A": "outside_3",
+      "Nexus-TH_109_3": "server",
+      "Nexus-TH_112_2": "conservatory",
+      "Nexus-TH_128_1": "loft",
+      "Nexus-TH_12_3": "outside_1",
+      "Nexus-TH_13_1": "bathroom",
+      "Nexus-TH_213_3": "bedroom_3",
+      "Nexus-TH_227_2": "kitchen",
+      "Nexus-TH_43_1": "bedroom_1",
+      "Nexus-TH_46_2": "laundry",
+      "Nexus-TH_61_2": "outside_2",
+      "Nexus-TH_61_3": "office",
+      "Nexus-TH_81_1": "bedroom_2"
+    },
+    "switch_states": {
+      "off": false,
+      "on": true,
+      "unknown": null
+    }
+  }
+}

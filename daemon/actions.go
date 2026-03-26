@@ -1,0 +1,594 @@
+package main
+
+import (
+  "context"
+  "fmt"
+  "log"
+  "net"
+  "net/http"
+  "net/smtp"
+  "os"
+  "os/exec"
+  "strconv"
+  "strings"
+  "syscall"
+  "time"
+  "crypto/tls"
+
+  mqtt "github.com/eclipse/paho.mqtt.golang"
+  "github.com/godbus/dbus/v5"
+
+  "github.com/emersion/go-imap"
+  "github.com/emersion/go-imap/client"
+)
+
+type ActionFunc func(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error
+
+var actionRegistry = map[string]ActionFunc{}
+
+func init() {
+  actionRegistry["log"] =          Action_log
+  actionRegistry["write_state"] =  Action_write_state
+  actionRegistry["write_data"] =   Action_write_data
+  actionRegistry["mqtt_publish"] = Action_mqtt_publish
+  actionRegistry["dbus_method"] =  Action_dbus_method
+  actionRegistry["http"] =         Action_http
+  actionRegistry["shell"] =        Action_shell
+  actionRegistry["sqlite_query"] = Action_sqlite_query
+  actionRegistry["mysql_query"] =  Action_mysql_query
+  actionRegistry["smtp"] =         Action_smtp
+  actionRegistry["imap_mark_seen"] =  Action_imap_mark_seen
+}
+
+func Action_log(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  msg, ok := vars["message"].(string)
+  if !ok {
+    msg = a.Message
+  }
+
+  msg = expandByTemplate(msg, vars)
+
+  log.Printf("[%s] Action_log - (flow: %s, step: %s): %s", runID, flowID, stepID, msg)
+
+  if e.broadcastChan != nil {
+    payload := map[string]interface{}{
+      "type":    "log",
+      "run_id":  runID,
+      "flow_id": flowID,
+      "step_id": stepID,
+      "message": msg,
+    }
+    select {
+    case e.broadcastChan <- payload:
+    default:
+      log.Printf("Action_log - Broadcast buffer full, dropping log for run %s", runID)
+    }
+  }
+  return nil
+}
+
+func Action_write_state(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  key, _ := vars["key"].(string)
+  val, ok := vars["value"]
+
+  if key == "" || !ok {
+    err := fmt.Errorf("missing key or value")
+    log.Printf("[%s] Action_write_state - %v", runID, err)
+    return err
+  }
+
+  if s, ok := val.(string); ok {
+    val = expandByTemplate(s, vars)
+  }
+
+  prev, _ := e.GetState(key)
+  e.WriteState(key, val)
+  log.Printf("[%s] Action_write_state - '%s' = %v (was %v)", runID, key, val, prev)
+  return nil
+}
+
+func Action_write_data(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  name, ok := vars["_data_record_name"].(string)
+  if !ok || name == "" {
+    err := fmt.Errorf("missing record name")
+    log.Printf("[%s] Action_write_data - %v", runID, err)
+    return err
+  }
+
+  e.WriteData(name, vars)
+  return nil
+}
+
+func Action_mqtt_publish(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  addr := a.Address
+
+  topic, ok := vars["topic"].(string)
+  if !ok {
+    topic = a.Topic
+  }
+  payload, ok := vars["payload"].(string)
+  if !ok {
+    payload = a.Payload
+  }
+  qos, ok := vars["qos"].(byte)
+  if !ok {
+    qos = a.Qos
+  }
+  retained, ok := vars["retained"].(bool)
+  if !ok {
+    retained = a.Retained
+  }
+
+  log.Printf("[%s] Action_mqtt_publish - addr: %s, [%s] %s", runID, addr, topic, payload)
+
+  if addr == "" || topic == "" {
+    err := fmt.Errorf("missing address or topic")
+    log.Printf("[%s] Action_mqtt_publish - %v", runID, err)
+    return err
+  }
+
+  opts := mqtt.NewClientOptions().AddBroker(addr)
+  opts.SetClientID("automagic-pub-" + runID)
+
+  if a.Username != "" {
+    opts.SetUsername(a.Username)
+    opts.SetPassword(a.Password)
+  }
+
+  client := mqtt.NewClient(opts)
+  if token := client.Connect(); token.Wait() && token.Error() != nil {
+    log.Printf("[%s] Action_mqtt_publish - connection error: %v", runID, token.Error())
+    return token.Error()
+  }
+  defer client.Disconnect(250)
+
+  token := client.Publish(topic, qos, retained, payload)
+  token.Wait()
+
+  log.Printf("[%s] Action_mqtt_publish - success [%s] %s", runID, topic, payload)
+  return nil
+}
+
+func Action_dbus_method(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  if a.Destination == "" || a.Path == "" || a.Interface == "" || a.Method == "" || a.Address == "" {
+    err := fmt.Errorf("missing required dbus params")
+    log.Printf("[%s] Action_dbus_method - %v", runID, err)
+    return err
+  }
+
+  timeoutMs := a.TimeoutMs
+  if timeoutMs == 0 {
+    timeoutMs = 2000
+  }
+
+  var args []interface{}
+  for _, raw := range a.Args {
+    argMap, isMap := raw.(map[string]interface{})
+    if !isMap {
+      log.Printf("[%s] Action_dbus_method - argument must be an object {type, value}", runID)
+      continue
+    }
+
+    t, _ := argMap["type"].(string)
+    val := argMap["value"]
+
+    if s, ok := val.(string); ok {
+      val = expandByTemplate(s, vars)
+    }
+
+    args = append(args, e.ResolveDBusArg(t, val))
+  }
+
+  conn, err := e.connectToDBus(a.Address)
+  if err != nil {
+    log.Printf("[%s] Action_dbus_method - connect error: %v", runID, err)
+    return err
+  }
+
+  if a.Address != "system" && a.Address != "session" {
+    defer conn.Close()
+  }
+
+  obj := conn.Object(a.Destination, dbus.ObjectPath(a.Path))
+  ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
+  defer cancel()
+
+  call := obj.CallWithContext(ctx, a.Interface+"."+a.Method, 0, args...)
+  if call.Err != nil {
+    log.Printf("[%s] Action_dbus_method - call error: %v", runID, call.Err)
+    return call.Err
+  }
+
+  log.Printf("[%s] Action_dbus_method - success: %s.%s", runID, a.Interface, a.Method)
+  return nil
+}
+
+func Action_http(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  url := expandByTemplate(a.Address, vars)
+
+  payload := ""
+  if a.Payload != "" {
+    payload = expandByTemplate(a.Payload, vars)
+  }
+
+  if url == "" {
+    err := fmt.Errorf("missing address")
+    log.Printf("[%s] Action_http - %v", runID, err)
+    return err
+  }
+
+  req, err := http.NewRequest(a.Method, url, strings.NewReader(payload))
+  if err != nil {
+    log.Printf("[%s] Action_http - init error: %v", runID, err)
+    return err
+  }
+
+  req.Header.Set("User-Agent", "automagicd/1.0")
+
+  if a.ContentType != "" {
+    req.Header.Set("Content-Type", a.ContentType)
+  }
+
+  if a.Username != "" {
+    req.SetBasicAuth(a.Username, a.Password)
+  }
+
+  client := &http.Client{Timeout: time.Second * 10}
+  resp, err := client.Do(req)
+  if err != nil {
+    log.Printf("[%s] Action_http - error: %v", runID, err)
+    return err
+  }
+  defer resp.Body.Close()
+
+  log.Printf("[%s] Action_http - payload: %s", runID, payload)
+  log.Printf("[%s] Action_http - vars: %s", runID, vars)
+  log.Printf("[%s] Action_http - %s %s -> %d", runID, a.Method, url, resp.StatusCode)
+
+  if resp.StatusCode >= 400 {
+    return fmt.Errorf("HTTP error status: %d", resp.StatusCode)
+  }
+
+  return nil
+}
+
+func Action_shell(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  if a.Command == "" {
+    err := fmt.Errorf("no command provided")
+    log.Printf("[%s] Action_shell - %v", runID, err)
+    return err
+  }
+
+  cmdStr := expandByTemplate(a.Command, vars)
+  cmd := exec.Command("sh", "-c", cmdStr)
+
+  if e.SessionUser != nil {
+    uid, _ := strconv.Atoi(e.SessionUser.Uid)
+    gid, _ := strconv.Atoi(e.SessionUser.Gid)
+
+    cmd.SysProcAttr = &syscall.SysProcAttr{
+      Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)},
+    }
+
+    cmd.Env = os.Environ()
+    cmd.Env = append(cmd.Env,
+      "HOME="+e.SessionUser.HomeDir,
+      "USER="+e.SessionUser.Username,
+      "LOGNAME="+e.SessionUser.Username,
+      fmt.Sprintf("DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%d/dbus/user_bus_socket", uid),
+      "PATH=/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin",
+    )
+  }
+
+  log.Printf("[%s] Action_shell - executing as %s: %s", runID, e.SessionUser.Username, cmdStr)
+
+  output, err := cmd.CombinedOutput()
+  if err != nil {
+    log.Printf("[%s] Action_shell - error: %v, output: %s", runID, err, string(output))
+    return err
+  }
+
+  if len(output) > 0 {
+    log.Printf("[%s] Action_shell - output: %s", runID, strings.TrimSpace(string(output)))
+  }
+  return nil
+}
+
+func Action_sqlite_query(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  dbPath := expandByTemplate(a.Path, vars)
+  if dbPath == "" {
+    dbPath = expandByTemplate(a.Address, vars)
+  }
+
+  query := expandByTemplate(a.Query, vars)
+  if query == "" {
+    query = expandByTemplate(a.Payload, vars)
+  }
+
+  if dbPath == "" || query == "" {
+    err := fmt.Errorf("missing params")
+    log.Printf("[%s] Action_sqlite_query - %v", runID, err)
+    return err
+  }
+
+  db, err := e.getSQLConnection("sqlite", "", "", "", dbPath, "")
+  if err != nil {
+    log.Printf("[%s] Action_sqlite_query - connect error: %v", runID, err)
+    return err
+  }
+
+  _, err = db.Exec(query)
+  if err != nil {
+    log.Printf("[%s] Action_sqlite_query - exec error: %v | Query: %s", runID, err, query)
+    return err
+  }
+
+  log.Printf("[%s] Action_sqlite_query - success", runID)
+  return nil
+}
+
+func Action_mysql_query(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  address := expandByTemplate(a.Address, vars)
+  user := expandByTemplate(a.Username, vars)
+  pass := expandByTemplate(a.Password, vars)
+  dbPath := expandByTemplate(a.Path, vars)
+  dbname := expandByTemplate(a.Database, vars)
+  query := expandByTemplate(a.Query, vars)
+
+  if dbname == "" || query == "" || address == "" {
+    err := fmt.Errorf("missing params")
+    log.Printf("[%s] Action_mysql_query - %v", runID, err)
+    return err
+  }
+
+  db, err := e.getSQLConnection("mysql", address, user, pass, dbPath, dbname)
+  if err != nil {
+    log.Printf("[%s] Action_mysql_query - connect error: %v", runID, err)
+    return err
+  }
+
+  _, err = db.Exec(query)
+  if err != nil {
+    log.Printf("[%s] Action_mysql_query - exec error: %v | Query: %s", runID, err, query)
+    return err
+  }
+
+  log.Printf("[%s] Action_mysql_query - success", runID)
+  return nil
+}
+
+type insecureAuth struct {
+  username, password string
+}
+
+func (a *insecureAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+  resp := []byte("\x00" + a.username + "\x00" + a.password)
+  return "PLAIN", resp, nil
+}
+
+func (a *insecureAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+  if more {
+    return nil, fmt.Errorf("unexpected server challenge")
+  }
+  return nil, nil
+}
+
+func Action_smtp(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  address := expandByTemplate(a.Address, vars)
+  user := expandByTemplate(a.Username, vars)
+  pass := expandByTemplate(a.Password, vars)
+
+  to, ok := vars["to"].(string)
+  if !ok || to == "" {
+    to = a.To
+  }
+  to = expandByTemplate(to, vars)
+
+  bcc, ok := vars["bcc"].(string)
+  if !ok || bcc == "" {
+    bcc = a.Bcc
+  }
+  bcc = expandByTemplate(bcc, vars)
+
+  from, ok := vars["from"].(string)
+  if !ok || from == "" {
+    from = a.From
+  }
+  from = expandByTemplate(from, vars)
+
+  subject, ok := vars["subject"].(string)
+  if !ok || subject == "" {
+    subject = a.Subject
+  }
+  subject = expandByTemplate(subject, vars)
+
+  body, ok := vars["body"].(string)
+  if !ok || body == "" {
+    body = a.Body
+  }
+  body = expandByTemplate(body, vars)
+
+  if address == "" || to == "" || from == "" {
+    err := fmt.Errorf("missing required params (address, to, from)")
+    log.Printf("[%s] Action_smtp - %v", runID, err)
+    return err
+  }
+
+  host, port, err := net.SplitHostPort(address)
+  if err != nil {
+    host = address
+    port = "587"
+    address = net.JoinHostPort(host, port)
+  }
+
+  var recipients []string
+  for _, t := range strings.Split(to, ",") {
+    clean := strings.TrimSpace(t)
+    if clean != "" {
+      recipients = append(recipients, clean)
+    }
+  }
+  for _, b := range strings.Split(bcc, ",") {
+    clean := strings.TrimSpace(b)
+    if clean != "" {
+      recipients = append(recipients, clean)
+    }
+  }
+
+  msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s", from, to, subject, body)
+
+  var auth smtp.Auth
+  if user != "" && pass != "" {
+    auth = &insecureAuth{username: user, password: pass}
+  }
+
+  tlsConfig := &tls.Config{
+    ServerName: host,
+  }
+
+  var c *smtp.Client
+
+  if port == "465" {
+    conn, tlsErr := tls.Dial("tcp", address, tlsConfig)
+    if tlsErr != nil {
+      log.Printf("[%s] Action_smtp - TLS dial error: %v", runID, tlsErr)
+      return tlsErr
+    }
+    c, err = smtp.NewClient(conn, host)
+    if err != nil {
+      log.Printf("[%s] Action_smtp - client error: %v", runID, err)
+      return err
+    }
+  } else {
+    c, err = smtp.Dial(address)
+    if err != nil {
+      log.Printf("[%s] Action_smtp - dial error: %v", runID, err)
+      return err
+    }
+    if ok, _ := c.Extension("STARTTLS"); ok {
+      if err = c.StartTLS(tlsConfig); err != nil {
+        log.Printf("[%s] Action_smtp - STARTTLS error: %v", runID, err)
+        return err
+      }
+    }
+  }
+  defer c.Close()
+
+  if auth != nil {
+    if err = c.Auth(auth); err != nil {
+      log.Printf("[%s] Action_smtp - auth error: %v", runID, err)
+      return err
+    }
+  }
+
+  if err = c.Mail(from); err != nil {
+    log.Printf("[%s] Action_smtp - mail from error: %v", runID, err)
+    return err
+  }
+  for _, r := range recipients {
+    if err = c.Rcpt(r); err != nil {
+      log.Printf("[%s] Action_smtp - rcpt to error: %v", runID, err)
+      return err
+    }
+  }
+
+  w, err := c.Data()
+  if err != nil {
+    log.Printf("[%s] Action_smtp - data error: %v", runID, err)
+    return err
+  }
+  _, err = w.Write([]byte(msg))
+  if err != nil {
+    log.Printf("[%s] Action_smtp - write error: %v", runID, err)
+    return err
+  }
+  err = w.Close()
+  if err != nil {
+    log.Printf("[%s] Action_smtp - close error: %v", runID, err)
+    return err
+  }
+
+  c.Quit()
+
+  log.Printf("[%s] Action_smtp - success: email sent to %d recipients", runID, len(recipients))
+  return nil
+}
+
+func Action_imap_mark_seen(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
+  address := expandByTemplate(a.Address, vars)
+  user := expandByTemplate(a.Username, vars)
+  pass := expandByTemplate(a.Password, vars)
+  
+  mailbox := expandByTemplate(a.Path, vars)
+  if mailbox == "" {
+    mailbox = "INBOX"
+  }
+
+  var uidRaw string
+  if val, ok := vars["uid"]; ok && val != nil && val != "" {
+    uidRaw = fmt.Sprintf("%v", val)
+  }
+  if uidRaw == "" {
+    uidRaw = expandByTemplate(a.Payload, vars)
+  }
+
+  uid, err := strconv.ParseUint(uidRaw, 10, 32)
+  if err != nil || uid == 0 {
+    err = fmt.Errorf("invalid or missing UID: %s", uidRaw)
+    log.Printf("[%s] Action_imap_mark_seen - %v", runID, err)
+    return err
+  }
+
+  if address == "" || user == "" || pass == "" {
+    return fmt.Errorf("missing IMAP connection params")
+  }
+
+  host, port, _ := net.SplitHostPort(address)
+  if port == "" { 
+    host = address
+    port = "993"
+    address = net.JoinHostPort(host, port) 
+  }
+
+  tlsConfig := &tls.Config{
+    ServerName:         host,
+    InsecureSkipVerify: a.Insecure,
+  }
+  
+  var c *client.Client
+  if port == "993" {
+    c, err = client.DialTLS(address, tlsConfig)
+  } else {
+    c, err = client.Dial(address)
+    if err == nil {
+      if ok, _ := c.SupportStartTLS(); ok { 
+        err = c.StartTLS(tlsConfig) 
+      }
+    }
+  }
+
+  if err != nil { 
+    return err 
+  }
+  defer c.Logout()
+
+  if err := c.Login(user, pass); err != nil { 
+    return err 
+  }
+  if _, err := c.Select(mailbox, false); err != nil { 
+    return err 
+  }
+
+  seqset := new(imap.SeqSet)
+  seqset.AddNum(uint32(uid))
+  item := imap.FormatFlagsOp(imap.AddFlags, true)
+  flags := []interface{}{imap.SeenFlag}
+  
+  if err := c.UidStore(seqset, item, flags, nil); err != nil {
+    log.Printf("[%s] Action_imap_mark_seen - store error: %v", runID, err)
+    return err
+  }
+
+  log.Printf("[%s] Action_imap_mark_seen - success: UID %d marked as read", runID, uid)
+  return nil
+}
