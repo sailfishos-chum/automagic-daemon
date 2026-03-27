@@ -125,10 +125,18 @@ func (e *Engine) fetchIMAP(runID string, ds DataSource) (map[string]interface{},
 
   if len(msg.Envelope.From) > 0 {
     payload["from"] = msg.Envelope.From[0].Address()
+    payload["from_email"] = msg.Envelope.From[0].Address()
+    if msg.Envelope.From[0].PersonalName != "" {
+      payload["from_name"] = msg.Envelope.From[0].PersonalName
+    }
   }
-  
+
   if len(msg.Envelope.To) > 0 {
     payload["to"] = msg.Envelope.To[0].Address()
+    payload["to_email"] = msg.Envelope.To[0].Address()
+    if msg.Envelope.To[0].PersonalName != "" {
+      payload["to_name"] = msg.Envelope.To[0].PersonalName
+    }
   }
 
   var bodyData []byte

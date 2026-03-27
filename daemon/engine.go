@@ -241,7 +241,9 @@ func (e *Engine) FetchData(runID string, sourceID string) (map[string]interface{
   }
 
   cleanVars := make(map[string]interface{})
-  applyTransformations(ds.Transformations, e.ValueMaps, raw, cleanVars)
+  if !applyTransformations(ds.Transformations, e.ValueMaps, raw, cleanVars) {
+    return cleanVars, fmt.Errorf("mandatory transformation failed for source %s", ds.ID)
+  }
 
   return cleanVars, nil
 }

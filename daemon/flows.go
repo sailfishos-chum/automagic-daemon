@@ -7,6 +7,7 @@ import (
   "time"
   "os"
   "math"
+  "regexp"
   "github.com/nathan-osman/go-sunrise"
 )
 
@@ -110,6 +111,22 @@ func (e *Engine) compareValues(actual interface{}, target interface{}, op string
   case "<=": return a <= t
   }
   return false
+}
+
+func (e *Engine) matchRegex(actual interface{}, target interface{}) bool {
+  pattern, okPat := target.(string)
+  if !okPat || pattern == "" {
+    return false
+  }
+
+  strVal := fmt.Sprintf("%v", actual)
+
+  matched, err := regexp.MatchString(pattern, strVal)
+  if err != nil {
+    return false
+  }
+
+  return matched
 }
 
 func (e *Engine) toFloat(v interface{}) (float64, error) {
@@ -220,11 +237,6 @@ func (e *Engine) processGet(runID string, ctxVars map[string]interface{}, step S
     return step.GotoAlt, fmt.Errorf("get step missing function or source")
   }
 
-  if err != nil {
-    log.Printf("[%s] Get error: %v", runID, err)
-    return step.GotoAlt, err
-  }
-
   if len(step.Mapping) > 0 {
     for srcKey, targetVar := range step.Mapping {
       if val, ok := data[srcKey]; ok {
@@ -232,10 +244,15 @@ func (e *Engine) processGet(runID string, ctxVars map[string]interface{}, step S
         log.Printf("[%s] Get mapped: %s -> %s (%v)", runID, srcKey, targetVar, val)
       }
     }
-  } else {
+  } else if data != nil {
     for k, v := range data {
       ctxVars[k] = v
     }
+  }
+
+  if err != nil {
+    log.Printf("[%s] Get error (partial data saved): %v", runID, err)
+    return step.GotoAlt, err
   }
 
   return step.Goto, nil
@@ -461,6 +478,8 @@ func (e *Engine) evaluateSingle(ctxVars map[string]interface{}, cond Condition) 
     return leftVal != rightVal
   case ">", "<", ">=", "<=":
     return e.compareValues(leftVal, rightVal, cond.Op)
+  case "regex":
+    return e.matchRegex(leftVal, rightVal)
   }
 
   return false

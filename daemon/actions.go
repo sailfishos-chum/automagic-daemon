@@ -378,38 +378,21 @@ func Action_smtp(runID string, e *Engine, a Action, vars map[string]interface{},
   user := expandByTemplate(a.Username, vars)
   pass := expandByTemplate(a.Password, vars)
 
-  to, ok := vars["to"].(string)
-  if !ok || to == "" {
-    to = a.To
+  plucking := func(key, fallback string) string {
+    if v, ok := vars[key].(string); ok && v != "" {
+      return expandByTemplate(v, vars)
+    }
+    return expandByTemplate(fallback, vars)
   }
-  to = expandByTemplate(to, vars)
 
-  bcc, ok := vars["bcc"].(string)
-  if !ok || bcc == "" {
-    bcc = a.Bcc
-  }
-  bcc = expandByTemplate(bcc, vars)
-
-  from, ok := vars["from"].(string)
-  if !ok || from == "" {
-    from = a.From
-  }
-  from = expandByTemplate(from, vars)
-
-  subject, ok := vars["subject"].(string)
-  if !ok || subject == "" {
-    subject = a.Subject
-  }
-  subject = expandByTemplate(subject, vars)
-
-  body, ok := vars["body"].(string)
-  if !ok || body == "" {
-    body = a.Body
-  }
-  body = expandByTemplate(body, vars)
+  to := plucking("to", a.To) 
+  bcc := plucking("bcc", a.Bcc)
+  from := plucking("from", a.From)
+  subject := plucking("subject", a.Subject)
+  body := plucking("body", a.Body)
 
   if address == "" || to == "" || from == "" {
-    err := fmt.Errorf("missing required params (address, to, from)")
+    err := fmt.Errorf("missing required params (address: %s, to: %s, from: %s)", address, to, from)
     log.Printf("[%s] Action_smtp - %v", runID, err)
     return err
   }
@@ -422,20 +405,22 @@ func Action_smtp(runID string, e *Engine, a Action, vars map[string]interface{},
   }
 
   var recipients []string
-  for _, t := range strings.Split(to, ",") {
+  for _, t := range strings.Split(to+ "," + bcc, ",") {
     clean := strings.TrimSpace(t)
     if clean != "" {
       recipients = append(recipients, clean)
     }
   }
-  for _, b := range strings.Split(bcc, ",") {
-    clean := strings.TrimSpace(b)
-    if clean != "" {
-      recipients = append(recipients, clean)
-    }
+
+  msgDate := ""
+  if d, ok := vars["date"].(string); ok && d != "" {
+    msgDate = d
+  } else {
+    msgDate = time.Now().Format(time.RFC1123Z)
   }
 
-  msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s", from, to, subject, body)
+  msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"utf-8\"\r\n\r\n%s", 
+    from, to, subject, msgDate, body)
 
   var auth smtp.Auth
   if user != "" && pass != "" {
@@ -443,7 +428,8 @@ func Action_smtp(runID string, e *Engine, a Action, vars map[string]interface{},
   }
 
   tlsConfig := &tls.Config{
-    ServerName: host,
+    ServerName:         host,
+    InsecureSkipVerify: a.Insecure, 
   }
 
   var c *smtp.Client
@@ -455,22 +441,18 @@ func Action_smtp(runID string, e *Engine, a Action, vars map[string]interface{},
       return tlsErr
     }
     c, err = smtp.NewClient(conn, host)
-    if err != nil {
-      log.Printf("[%s] Action_smtp - client error: %v", runID, err)
-      return err
-    }
   } else {
     c, err = smtp.Dial(address)
-    if err != nil {
-      log.Printf("[%s] Action_smtp - dial error: %v", runID, err)
-      return err
-    }
-    if ok, _ := c.Extension("STARTTLS"); ok {
-      if err = c.StartTLS(tlsConfig); err != nil {
-        log.Printf("[%s] Action_smtp - STARTTLS error: %v", runID, err)
-        return err
+    if err == nil {
+      if ok, _ := c.Extension("STARTTLS"); ok {
+        err = c.StartTLS(tlsConfig)
       }
     }
+  }
+
+  if err != nil {
+    log.Printf("[%s] Action_smtp - connection error: %v", runID, err)
+    return err
   }
   defer c.Close()
 
@@ -482,32 +464,20 @@ func Action_smtp(runID string, e *Engine, a Action, vars map[string]interface{},
   }
 
   if err = c.Mail(from); err != nil {
-    log.Printf("[%s] Action_smtp - mail from error: %v", runID, err)
     return err
   }
   for _, r := range recipients {
     if err = c.Rcpt(r); err != nil {
-      log.Printf("[%s] Action_smtp - rcpt to error: %v", runID, err)
       return err
     }
   }
 
   w, err := c.Data()
   if err != nil {
-    log.Printf("[%s] Action_smtp - data error: %v", runID, err)
     return err
   }
   _, err = w.Write([]byte(msg))
-  if err != nil {
-    log.Printf("[%s] Action_smtp - write error: %v", runID, err)
-    return err
-  }
-  err = w.Close()
-  if err != nil {
-    log.Printf("[%s] Action_smtp - close error: %v", runID, err)
-    return err
-  }
-
+  w.Close()
   c.Quit()
 
   log.Printf("[%s] Action_smtp - success: email sent to %d recipients", runID, len(recipients))

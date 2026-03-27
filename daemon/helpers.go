@@ -8,6 +8,7 @@ import (
   "strconv"
   "math"
   "regexp"
+  "time"
   "encoding/json"
   "github.com/godbus/dbus/v5"
   "sync/atomic"
@@ -199,6 +200,71 @@ func applyTransformations(transformations []Transformation, value_maps map[strin
         vars_out[t.Out] = math.Round(f*p) / p
 
         log.Printf("applyTransformations - round: %s = %v -> %s = %v ", t.In, v, t.Out, vars_out[t.Out])
+
+      case "format_date":
+        val := getValueByPreference(t.In, vars_out, vars_in)
+        if res := ensureInOutVariables(t.In, t.Out, t.Optional, val); res == 0 {
+          log.Printf("applyTransformations date_format: missing variables - ending transformations")
+          return false
+        } else if res == -1 {
+          continue
+        }
+
+        input, ok := val.(string)
+        if !ok || input == "" {
+          if t.Optional {
+            continue
+          }
+          log.Printf("applyTransformations - date_format: input is not a valid string")
+          return false
+        }
+
+        getLayout := func(alias string) string {
+          switch strings.ToLower(alias) {
+          case "rfc1123z", "email": return time.RFC1123Z
+          case "rfc3339", "iso8601": return time.RFC3339
+          case "ofono", "mobile": return "2006-01-02T15:04:05-0700"
+          case "unix": return "unix"
+          case "ansic": return time.ANSIC
+          case "kitchen": return time.Kitchen
+          case "stamp": return time.Stamp
+          default: return alias
+          }
+        }
+
+        inLayout := getLayout(t.InFormat)
+        outLayout := getLayout(t.OutFormat)
+
+        var timeVal time.Time
+        var err error
+
+        if inLayout == "unix" {
+          i, parseErr := strconv.ParseInt(input, 10, 64)
+          if parseErr == nil {
+            timeVal = time.Unix(i, 0)
+          } else {
+            err = parseErr
+          }
+        } else {
+          timeVal, err = time.Parse(inLayout, input)
+        }
+
+        if err != nil {
+          if t.Optional {
+            log.Printf("applyTransformations - date_format parse error: %v", err)
+            continue
+          }
+          log.Printf("applyTransformations - date_format parse error: %v - ending transformations", err)
+          return false
+        }
+
+        if outLayout == "unix" {
+          vars_out[t.Out] = strconv.FormatInt(timeVal.Unix(), 10)
+        } else {
+          vars_out[t.Out] = timeVal.Format(outLayout)
+        }
+
+        log.Printf("applyTransformations - date_format: %s = %v -> %s = %v", t.In, input, t.Out, vars_out[t.Out])
     }
   }
 

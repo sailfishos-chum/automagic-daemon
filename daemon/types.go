@@ -55,6 +55,8 @@ type Transformation struct {
   Type          string                 `json:"type,omitempty"`
   In            string                 `json:"in,omitempty"`
   Out           string                 `json:"out,omitempty"`
+  InFormat      string                 `json:"in_format,omitempty"`
+  OutFormat     string                 `json:"out_format,omitempty"`
   Map           string                 `json:"map,omitempty"`
   Optional      bool                   `json:"optional,omitempty"`
   DecimalPlaces int                    `json:"decimal_places,omitempty"`
