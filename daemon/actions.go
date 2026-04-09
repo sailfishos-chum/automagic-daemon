@@ -127,7 +127,19 @@ func Action_mqtt_publish(runID string, e *Engine, a Action, vars map[string]inte
     return err
   }
 
-  opts := mqtt.NewClientOptions().AddBroker(addr)
+  address := addr
+  if !strings.Contains(address, "://") {
+    address = "tcp://" + address
+  }
+
+  opts := mqtt.NewClientOptions().AddBroker(address)
+  
+  if strings.HasPrefix(address, "ssl://") || strings.HasPrefix(address, "tls://") {
+    opts.SetTLSConfig(&tls.Config{
+      InsecureSkipVerify: a.Insecure,
+    })
+  }
+  
   opts.SetClientID("automagic-pub-" + runID)
 
   if a.Username != "" {

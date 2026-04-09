@@ -22,14 +22,14 @@ func (e *Engine) StartStateTriggers() {
     return
   }
 
-  if e.stateTriggerCancel == nil {
-    e.stateTriggerCancel = make(map[string]context.CancelFunc)
+  if e.state_trigger_cancels == nil {
+    e.state_trigger_cancels = make(map[string]context.CancelFunc)
   }
 
   e.stateTriggerChan = make(chan StateUpdate, 100)
 
   ctx, cancel := context.WithCancel(context.Background())
-  e.stateTriggerCancel["main"] = cancel
+  e.state_trigger_cancels["main"] = cancel
 
   log.Printf("StartStateTriggers - tracking %d state triggers", len(stateTriggers))
 
@@ -70,11 +70,11 @@ func (e *Engine) runStateTriggers(ctx context.Context, triggers []DataSource) {
 }
 
 func (e *Engine) StopStateTriggers() {
-  if e.stateTriggerCancel != nil {
-    for _, cancel := range e.stateTriggerCancel {
+  if e.state_trigger_cancels != nil {
+    for _, cancel := range e.state_trigger_cancels {
       cancel()
     }
-    e.stateTriggerCancel = nil
+    e.state_trigger_cancels = nil
   }
   if e.stateTriggerChan != nil {
     close(e.stateTriggerChan)

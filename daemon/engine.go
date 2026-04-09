@@ -21,6 +21,7 @@ func NewEngine() *Engine {
     Data:               make(map[string]map[string]interface{}),
     lastThrottleRuns:   make(map[string]time.Time),
     broadcastChan:      make(chan interface{}, 100),
+    lastLocation:       &LocationState{},
 	}
 
 	return e
@@ -232,6 +233,8 @@ func (e *Engine) FetchData(runID string, sourceID string) (map[string]interface{
     raw, err = e.fetchSQL(runID, ds)
   case "imap":
     raw, err = e.fetchIMAP(runID, ds)
+  case "location":
+    raw, err = e.fetchLocation(runID, ds)
   default:
     return nil, fmt.Errorf("unsupported fetch type: %s", ds.Type)
   }
@@ -379,6 +382,7 @@ func (e *Engine) Start() error {
 }
 
 func (e *Engine) Stop() {
+  e.StopLocationTriggers()
   e.StopBroadcaster()
   e.StopTimerTriggers()
   e.StopDBusTriggers()
@@ -388,6 +392,7 @@ func (e *Engine) Stop() {
 }
 
 func (e *Engine) Reload() error {
+  e.StopLocationTriggers()
   e.StopTimerTriggers()
   e.StopDBusTriggers()
   e.StopMQTTTriggers()
@@ -423,7 +428,8 @@ func (e *Engine) Reload() error {
   e.StartDBusTriggers()
   e.StartTimerTriggers()
   e.StartStateTriggers()
-
+  e.StartLocationTriggers()
+  
   return nil
 }
 

@@ -18,7 +18,8 @@ type Engine struct {
   dbus_cancels map[string]context.CancelFunc
   timer_cancels map[string]context.CancelFunc
   file_watcher_cancels map[string]context.CancelFunc
-  stateTriggerCancel map[string]context.CancelFunc
+  state_trigger_cancels map[string]context.CancelFunc
+  location_cancel context.CancelFunc
   dataSources map[string]DataSource
   mqtt_brokers map[string]*MQTTBroker
   file_watchers map[string]*FileWatcher
@@ -34,15 +35,16 @@ type Engine struct {
   stateTriggerChan chan StateUpdate
   ValueMaps map[string]map[string]interface{}
   lastThrottleRuns map[string]time.Time
-  throttleMu       sync.Mutex
-  
+  throttleMu sync.Mutex
   SharedSecret string
+  lastLocation *LocationState
 }
 
 type MQTTBroker struct {
   Address  string
   Username string
   Password string
+  Insecure bool
   Triggers []DataSource
 }
 
@@ -88,6 +90,8 @@ type DataSource struct {
   Interval        string                 `json:"interval,omitempty"`
   InitialDelay    string                 `json:"initial_delay,omitempty"`
   Insecure        bool                   `json:"insecure,omitempty"`
+  Timeout         string                 `json:"timeout,omitempty"`
+  CacheTTL        string                 `json:"cache_ttl,omitempty"`
 }
 
 type TypedArg struct {
@@ -177,4 +181,15 @@ type SocketResponse struct {
   Error  string                             `json:"error,omitempty"`
   States map[string]interface{}             `json:"states,omitempty"`
   Data   map[string]map[string]interface{}  `json:"data,omitempty"`
+}
+
+type LocationState struct {
+  mu                sync.RWMutex
+  latitude          float64
+  longitude         float64
+  altitude          float64
+  accuracy          float64
+  verticalAccuracy  float64
+  timestamp         int32
+  provider          string
 }

@@ -9,6 +9,8 @@ import (
   "time"
   "crypto/sha256"
   "encoding/hex"
+  "strings"
+  "crypto/tls"
   mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
@@ -35,6 +37,7 @@ func (e *Engine) StartMQTTTriggers() {
         Address:   t.Address,
         Username: t.Username,
         Password: t.Password,
+        Insecure: t.Insecure,
       }
       e.mqtt_brokers[broker_id] = broker
     }
@@ -58,7 +61,20 @@ func (e *Engine) startMQTTBroker(ctx context.Context, b *MQTTBroker) {
   client_id := fmt.Sprintf("automagic-%d", rand.Int())
 
   opts := mqtt.NewClientOptions()
-  opts.AddBroker("tcp://" + b.Address)
+    
+  address := b.Address
+  if !strings.Contains(address, "://") {
+    address = "tcp://" + address
+  }
+  
+  opts.AddBroker(address)
+
+  if strings.HasPrefix(address, "ssl://") || strings.HasPrefix(address, "tls://") {
+    opts.SetTLSConfig(&tls.Config{
+      InsecureSkipVerify: b.Insecure,
+    })
+  }
+
   opts.SetClientID("automagic-" + client_id)
   opts.SetAutoReconnect(true)
   opts.SetConnectRetry(true)
