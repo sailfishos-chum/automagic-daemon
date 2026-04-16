@@ -24,13 +24,61 @@ func expandByTemplate(template string, vars_list ...map[string]interface{}) stri
   }
 
   return templateRegex.ReplaceAllStringFunc(template, func(match string) string {
-    path := strings.TrimSpace(match[2 : len(match)-2])
+    rawPath := strings.TrimSpace(match[2 : len(match)-2])
+    parts := strings.Split(rawPath, ":")
+    path := strings.TrimSpace(parts[0])
 
-    if val, ok := getNestedValue(vars, path); ok {
-      return fmt.Sprintf("%v", val)
+    val, ok := getNestedValue(vars, path)
+    if !ok {
+      return "null"
     }
 
-    return "null"
+    strVal := fmt.Sprintf("%v", val)
+
+    if len(parts) == 1 {
+      return strVal
+    }
+
+    runes := []rune(strVal)
+    rLen := len(runes)
+
+    offset := 0
+    if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+      if parsedOffset, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
+        offset = parsedOffset
+      }
+    }
+
+    start := offset
+    if start < 0 {
+      start = rLen + start
+    }
+    if start < 0 {
+      start = 0
+    }
+    if start > rLen {
+      start = rLen
+    }
+
+    end := rLen
+    if len(parts) > 2 && strings.TrimSpace(parts[2]) != "" {
+      if parsedLen, err := strconv.Atoi(strings.TrimSpace(parts[2])); err == nil {
+        if parsedLen < 0 {
+          end = rLen + parsedLen
+        } else {
+          end = start + parsedLen
+        }
+      }
+    }
+
+    if end < start {
+      end = start
+    }
+    if end > rLen {
+      end = rLen
+    }
+
+    return string(runes[start:end])
   })
 }
 
@@ -265,9 +313,66 @@ func applyTransformations(transformations []Transformation, value_maps map[strin
         }
 
         log.Printf("applyTransformations - date_format: %s = %v -> %s = %v", t.In, input, t.Out, vars_out[t.Out])
+
+      case "uppercase", "lowercase", "trim", "replace", "regex_replace":
+        if ok := applyStringTransformation(t, vars_in, vars_out); !ok {
+          return false
+        }
     }
   }
 
+  return true
+}
+
+func applyStringTransformation(t Transformation, vars_in, vars_out map[string]interface{}) bool {
+  val := getValueByPreference(t.In, vars_out, vars_in)
+  
+  if res := ensureInOutVariables(t.In, t.Out, t.Optional, val); res == 0 {
+    log.Printf("applyStringTransformation %s: missing variables - ending transformations", t.Type)
+    return false
+  } else if res == -1 {
+    return true
+  }
+
+  inputStr := fmt.Sprintf("%v", val)
+  var result string
+
+  switch t.Type {
+  case "uppercase":
+    result = strings.ToUpper(inputStr)
+  case "lowercase":
+    result = strings.ToLower(inputStr)
+  case "trim":
+    result = strings.TrimSpace(inputStr)
+  case "replace":
+    if t.Search == "" {
+      log.Printf("applyStringTransformation - replace: 'search' is required")
+      if t.Optional { return true }
+      return false
+    }
+    result = strings.ReplaceAll(inputStr, t.Search, t.Replace)
+  case "regex_replace":
+    if t.Pattern == "" {
+      log.Printf("applyStringTransformation - regex_replace: 'pattern' is required")
+      if t.Optional { return true }
+      return false
+    }
+    re, err := regexp.Compile(t.Pattern)
+    if err != nil {
+      log.Printf("applyStringTransformation - regex_replace parse error: %v", err)
+      if t.Optional { return true }
+      return false
+    }
+    result = re.ReplaceAllString(inputStr, t.Replace)
+  default:
+    log.Printf("applyStringTransformation - string map error: unknown type '%s'", t.Type)
+    if t.Optional { return true }
+    return false
+  }
+
+  vars_out[t.Out] = result
+  log.Printf("applyStringTransformation - %s: %s = '%s' -> %s = '%s'", t.Type, t.In, inputStr, t.Out, result)
+  
   return true
 }
 

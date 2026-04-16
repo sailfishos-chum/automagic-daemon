@@ -2,7 +2,7 @@ package main
 
 import (
   "context"
-  "encoding/json"
+  //"encoding/json"
   "math/rand"
   "fmt"
   "log"
@@ -130,20 +130,16 @@ func (e *Engine) makeMQTTHandler(b *MQTTBroker) mqtt.MessageHandler {
 
       runID := NewRunID()
 
-      vars := make(map[string]interface{})
+      //vars := make(map[string]interface{})
       vars_out := make(map[string]interface{})
 
-      switch t.Format {
-      case "", "json":
-        if err := json.Unmarshal(msg.Payload(), &vars); err != nil {
-          log.Printf("makeMQTTHandler - trigger '%s' JSON decode error: %v", t.ID, err)
-          continue
-        }
-      default:
-        log.Printf("makeMQTTHandler - trigger '%s' unsupported format '%s'", t.ID, t.Format)
+      vars, err := parsePayload(t.Format, msg.Payload(), t.Pattern, t.Delimiter)
+
+      if err != nil {
+        log.Printf("makeMQTTHandler - trigger '%s' payload parsing error: %s", t.ID, err)
         continue
       }
-
+      
       vars["_topic"] = msg.Topic()
 
       if !matchFilters(t.Filters, vars) {

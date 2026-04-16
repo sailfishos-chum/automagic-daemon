@@ -60,38 +60,50 @@ type Transformation struct {
   InFormat      string                 `json:"in_format,omitempty"`
   OutFormat     string                 `json:"out_format,omitempty"`
   Map           string                 `json:"map,omitempty"`
+  Search        string                 `json:"search,omitempty"`
+  Replace       string                 `json:"replace,omitempty"`
+  Pattern       string                 `json:"pattern,omitempty"`
   Optional      bool                   `json:"optional,omitempty"`
   DecimalPlaces int                    `json:"decimal_places,omitempty"`
 }
 
 type DataSource struct {
-  ID              string                 `json:"id"`
-  Name            string                 `json:"name,omitempty"`
-  Type            string                 `json:"type"`
-  Enabled         bool                   `json:"enabled"`
-  Address         string                 `json:"address,omitempty"`
-  Username        string                 `json:"username,omitempty"`
-  Password        string                 `json:"password,omitempty"`
-  Topic           string                 `json:"topic,omitempty"`
-  Interface       string                 `json:"interface,omitempty"`
-  Path            string                 `json:"path,omitempty"`
-  Database        string                 `json:"database,omitempty"`
-  Query           string                 `json:"query,omitempty"`
-  Destination     string                 `json:"destination,omitempty"`
-  Method          string                 `json:"method,omitempty"`
-  Signal          string                 `json:"signal,omitempty"`
-  Args            []TypedArg             `json:"args,omitempty"`
-  Format          string                 `json:"format,omitempty"`
-  Pattern         string                 `json:"pattern,omitempty"`
-  Delimiter       string                 `json:"delimiter,omitempty"`
-  Trigger         bool                   `json:"trigger,omitempty"`
-  Filters         map[string]interface{} `json:"filters,omitempty"`
-  Transformations []Transformation       `json:"transformations,omitempty"`
-  Interval        string                 `json:"interval,omitempty"`
-  InitialDelay    string                 `json:"initial_delay,omitempty"`
-  Insecure        bool                   `json:"insecure,omitempty"`
-  Timeout         string                 `json:"timeout,omitempty"`
-  CacheTTL        string                 `json:"cache_ttl,omitempty"`
+  ID                string                  `json:"id"`
+  Name              string                  `json:"name,omitempty"`
+  Type              string                  `json:"type"`
+  Enabled           bool                    `json:"enabled"`
+  Address           string                  `json:"address,omitempty"`
+  Username          string                  `json:"username,omitempty"`
+  Password          string                  `json:"password,omitempty"`
+  Topic             string                  `json:"topic,omitempty"`
+  Interface         string                  `json:"interface,omitempty"`
+  Path              string                  `json:"path,omitempty"`
+  Database          string                  `json:"database,omitempty"`
+  Query             string                  `json:"query,omitempty"`
+  Destination       string                  `json:"destination,omitempty"`
+  Method            string                  `json:"method,omitempty"`
+  Signal            string                  `json:"signal,omitempty"`
+  Args              []TypedArg              `json:"args,omitempty"`
+  Format            string                  `json:"format,omitempty"`
+  Pattern           string                  `json:"pattern,omitempty"`
+  Delimiter         string                  `json:"delimiter,omitempty"`
+  Trigger           bool                    `json:"trigger,omitempty"`
+  Filters           map[string]interface{}  `json:"filters,omitempty"`
+  Transformations   []Transformation        `json:"transformations,omitempty"`
+  Interval          string                  `json:"interval,omitempty"`
+  InitialDelay      string                  `json:"initial_delay,omitempty"`
+  ScheduleSeconds   []int                   `json:"schedule_seconds,omitempty"`
+  ScheduleMinutes   []int                   `json:"schedule_minutes,omitempty"`
+  ScheduleHours     []int                   `json:"schedule_hours,omitempty"`
+  ScheduleWeekdays  []int                   `json:"schedule_weekdays,omitempty"`
+  ScheduleDays      []int                   `json:"schedule_days,omitempty"`
+  ScheduleMonths    []int                   `json:"schedule_months,omitempty"`
+  ScheduleYears     []int                   `json:"schedule_years,omitempty"`
+  Insecure          bool                    `json:"insecure,omitempty"`
+  Timeout           string                  `json:"timeout,omitempty"`
+  CacheTTL          string                  `json:"cache_ttl,omitempty"`
+  ContentType       string                  `json:"content_type,omitempty"`
+  Payload           string                  `json:"payload,omitempty"`
 }
 
 type TypedArg struct {
@@ -126,6 +138,7 @@ type Step struct {
 type Condition struct {
   Logic      string      `json:"logic,omitempty"`
   Op         string      `json:"op"`
+  Group      int         `json:"group,omitempty"`
   LeftVar    string      `json:"left_var,omitempty"`
   LeftState  string      `json:"left_state,omitempty"`
   LeftConst  interface{} `json:"left_const,omitempty"`
@@ -149,7 +162,7 @@ type Action struct {
   Interface   string                 `json:"interface,omitempty"`
   Method      string                 `json:"method,omitempty"`
   Args        []interface{}          `json:"args,omitempty"`
-  TimeoutMs   int                    `json:"timeout_ms,omitempty"`
+  Timeout     string                 `json:"timeout,omitempty"`
   Username    string                 `json:"username,omitempty"`
   Password    string                 `json:"password,omitempty"`
   Topic       string                 `json:"topic,omitempty"`
@@ -165,7 +178,7 @@ type Action struct {
   Bcc         string                 `json:"bcc,omitempty"`
   Subject     string                 `json:"subject,omitempty"`
   Body        string                 `json:"body,omitempty"`
-  Insecure        bool                   `json:"insecure,omitempty"`
+  Insecure    bool                   `json:"insecure,omitempty"`
 }
 
 type SocketRequest struct {

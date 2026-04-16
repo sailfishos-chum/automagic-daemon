@@ -168,9 +168,13 @@ func Action_dbus_method(runID string, e *Engine, a Action, vars map[string]inter
     return err
   }
 
-  timeoutMs := a.TimeoutMs
-  if timeoutMs == 0 {
-    timeoutMs = 2000
+  timeout := 2 * time.Second
+  if a.Timeout != "" {
+    if parsed, err := time.ParseDuration(a.Timeout); err == nil {
+      timeout = parsed
+    } else {
+      log.Printf("[%s] Action_dbus_method - invalid timeout '%s', defaulting to 2s: %v", runID, a.Timeout, err)
+    }
   }
 
   var args []interface{}
@@ -202,7 +206,7 @@ func Action_dbus_method(runID string, e *Engine, a Action, vars map[string]inter
   }
 
   obj := conn.Object(a.Destination, dbus.ObjectPath(a.Path))
-  ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
+  ctx, cancel := context.WithTimeout(context.Background(), timeout)
   defer cancel()
 
   call := obj.CallWithContext(ctx, a.Interface+"."+a.Method, 0, args...)
@@ -245,7 +249,28 @@ func Action_http(runID string, e *Engine, a Action, vars map[string]interface{},
     req.SetBasicAuth(a.Username, a.Password)
   }
 
-  client := &http.Client{Timeout: time.Second * 10}
+  timeout := 10 * time.Second
+  if a.Timeout != "" {
+    if parsed, err := time.ParseDuration(a.Timeout); err == nil {
+      timeout = parsed
+    } else {
+      log.Printf("[%s] Action_http - invalid timeout '%s', defaulting to 10s: %v", runID, a.Timeout, err)
+    }
+  }
+
+  customTransport := http.DefaultTransport.(*http.Transport).Clone()
+  if a.Insecure {
+    if customTransport.TLSClientConfig == nil {
+      customTransport.TLSClientConfig = &tls.Config{}
+    }
+    customTransport.TLSClientConfig.InsecureSkipVerify = true
+  }
+
+  client := &http.Client{
+    Timeout:   timeout,
+    Transport: customTransport,
+  }
+
   resp, err := client.Do(req)
   if err != nil {
     log.Printf("[%s] Action_http - error: %v", runID, err)
@@ -254,7 +279,6 @@ func Action_http(runID string, e *Engine, a Action, vars map[string]interface{},
   defer resp.Body.Close()
 
   log.Printf("[%s] Action_http - payload: %s", runID, payload)
-  log.Printf("[%s] Action_http - vars: %s", runID, vars)
   log.Printf("[%s] Action_http - %s %s -> %d", runID, a.Method, url, resp.StatusCode)
 
   if resp.StatusCode >= 400 {

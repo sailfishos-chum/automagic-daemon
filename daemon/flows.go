@@ -8,6 +8,7 @@ import (
   "os"
   "math"
   "regexp"
+  "strings"
   "github.com/nathan-osman/go-sunrise"
 )
 
@@ -70,6 +71,8 @@ func (f *Flow) Execute(runID string, e *Engine, initialVars map[string]interface
         nextTarget, err = e.processMath(runID, ctxVars, step)
       case "round":
         nextTarget, err = e.processRound(runID, ctxVars, step)
+      case "string":
+        nextTarget, err = e.processString(runID, ctxVars, step)
       case "branch":
         nextTarget = step.Goto
       }
@@ -166,6 +169,10 @@ func (e *Engine) callInternalFunction(fn string, params map[string]interface{}) 
     res["time"] = now.Format("15:04:05")
     res["weekday"] = int(now.Weekday())
     res["weekday_name"] = now.Weekday().String()
+    res["day"] = now.Day()
+    res["month"] = int(now.Month())
+    res["month_name"] = now.Month().String()
+    res["year"] = now.Year()
 
   case "device":
     host, _ := os.Hostname()
@@ -299,6 +306,41 @@ func (e *Engine) processAction(runID string, ctxVars map[string]interface{}, ste
         log.Printf("[%s] set_state error: missing 'variable', 'template', or 'static'", runID)
         return step.GotoAlt, fmt.Errorf("missing 'variable', 'template', or 'static'")
       }
+    case "set_variable":
+      nameRaw, hasName := resolvedParams["name"]
+      if !hasName {
+        log.Printf("[%s] set_variable error: missing 'name' parameter", runID)
+        return step.GotoAlt, fmt.Errorf("missing 'name' parameter")
+      }
+      
+      variableName, ok := nameRaw.(string)
+      if !ok {
+        log.Printf("[%s] set_variable error: 'name' must resolve to a string", runID)
+        return step.GotoAlt, fmt.Errorf("'name' must resolve to a string")
+      }
+
+      var variableVal interface{}
+      valueSet := false
+
+      if varName, ok := step.Params["variable"].(string); ok {
+        variableVal = ctxVars[varName]
+        valueSet = true
+      } else if staticVal, ok := step.Params["static"]; ok {
+        variableVal = staticVal
+        valueSet = true
+      } else if tplVal, ok := resolvedParams["template"]; ok {
+        variableVal = tplVal
+        valueSet = true
+      }
+
+      if valueSet {
+        ctxVars[variableName] = variableVal
+        log.Printf("[%s] set_variable: %s -> %v", runID, variableName, variableVal)
+      } else {
+        log.Printf("[%s] set_variable error: missing 'variable', 'template', or 'static'", runID)
+        return step.GotoAlt, fmt.Errorf("missing 'variable', 'template', or 'static'")
+      }
+
     default:
       log.Printf("[%s] Unknown internal function: %s", runID, step.Function)
       return step.GotoAlt, fmt.Errorf("Unknown internal function: %s", step.Function)
@@ -437,6 +479,60 @@ func (e *Engine) processRound(runID string, ctxVars map[string]interface{}, step
   
   ctxVars[outVar] = rounded
   log.Printf("[%s] Round: %v -> %v (%d decimals)", runID, f, rounded, decimals)
+
+  return step.Goto, nil
+}
+
+func (e *Engine) processString(runID string, ctxVars map[string]interface{}, step Step) (string, error) {
+  resolvedParams := e.resolveParams(step.Params, ctxVars)
+
+  inRaw, hasIn := resolvedParams["in"]
+  if !hasIn {
+    return step.GotoAlt, fmt.Errorf("string step requires 'in' parameter")
+  }
+  inStr := fmt.Sprintf("%v", inRaw) 
+
+  outVar, hasOut := step.Params["out"].(string)
+  if !hasOut {
+    return step.GotoAlt, fmt.Errorf("string step requires 'out' string parameter")
+  }
+
+  var result string
+
+  switch step.Function {
+  case "uppercase":
+    result = strings.ToUpper(inStr)
+  case "lowercase":
+    result = strings.ToLower(inStr)
+  case "trim":
+    result = strings.TrimSpace(inStr)
+
+  case "replace":
+    searchStr, _ := resolvedParams["search"].(string)
+    replaceStr, _ := resolvedParams["replace"].(string)
+    
+    if searchStr == "" {
+      return step.GotoAlt, fmt.Errorf("replace requires a 'search' parameter")
+    }
+    result = strings.ReplaceAll(inStr, searchStr, replaceStr)
+
+  case "regex_replace":
+    pattern, _ := resolvedParams["pattern"].(string)
+    replaceStr, _ := resolvedParams["replace"].(string)
+    
+    re, err := regexp.Compile(pattern)
+    if err != nil {
+      log.Printf("[%s] string error: invalid regex pattern: %v", runID, err)
+      return step.GotoAlt, err
+    }
+    result = re.ReplaceAllString(inStr, replaceStr)
+
+  default:
+    return step.GotoAlt, fmt.Errorf("unknown string function: %s", step.Function)
+  }
+
+  ctxVars[outVar] = result
+  log.Printf("[%s] String (%s): '%s' -> %s = '%s'", runID, step.Function, inStr, outVar, result)
 
   return step.Goto, nil
 }
