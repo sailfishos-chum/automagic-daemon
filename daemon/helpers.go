@@ -684,6 +684,13 @@ func getNestedValue(data map[string]interface{}, path string) (interface{}, bool
       val, ok := c[part]
       if !ok { return nil, false }
       current = val
+    case []interface{}:
+      idxStr := strings.TrimPrefix(part, "arg")
+      idx, err := strconv.Atoi(idxStr)
+      if err != nil || idx < 0 || idx >= len(c) {
+        return nil, false
+      }
+      current = c[idx]
     default:
       return nil, false
     }

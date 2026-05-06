@@ -10,8 +10,10 @@ import (
   "crypto/tls"
 )
 
-func (e *Engine) fetchHTTP(runID string, ds DataSource) (map[string]interface{}, error) {
-  if ds.Address == "" {
+func (e *Engine) fetchHTTP(runID string, ds DataSource, params map[string]interface{}) (map[string]interface{}, error) {
+
+  address := expandByTemplate(ds.Address, params)
+  if address == "" {
     return nil, fmt.Errorf("http source '%s' requires an address", ds.ID)
   }
 
@@ -21,11 +23,17 @@ func (e *Engine) fetchHTTP(runID string, ds DataSource) (map[string]interface{},
   }
 
   var bodyReader io.Reader
+
+  payload := ""
   if ds.Payload != "" {
-    bodyReader = strings.NewReader(ds.Payload)
+    payload = expandByTemplate(ds.Payload, params)
   }
 
-  req, err := http.NewRequest(method, ds.Address, bodyReader)
+  if payload != "" {
+    bodyReader = strings.NewReader(payload)
+  }
+
+  req, err := http.NewRequest(method, address, bodyReader)
   if err != nil {
     return nil, err
   }
@@ -48,6 +56,8 @@ func (e *Engine) fetchHTTP(runID string, ds DataSource) (map[string]interface{},
       log.Printf("[%s] fetchHTTP - invalid timeout '%s', defaulting to 10s: %v", runID, ds.Timeout, err)
     }
   }
+
+  log.Printf("[%s] fetchHTTP - timeout %d, method: %s, content-type: %s, url: %s", runID, timeout, method, ds.ContentType, address)
 
   customTransport := http.DefaultTransport.(*http.Transport).Clone()
   if ds.Insecure {

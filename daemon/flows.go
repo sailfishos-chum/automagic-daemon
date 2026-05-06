@@ -236,10 +236,12 @@ func (e *Engine) processGet(runID string, ctxVars map[string]interface{}, step S
   var data map[string]interface{}
   var err error
 
+  resolvedParams := e.resolveParams(step.Params, ctxVars)
+
   if step.Function != "" {
     data, err = e.callInternalFunction(step.Function, step.Params)
   } else if step.Source != "" {
-    data, err = e.FetchData(runID, step.Source)
+    data, err = e.FetchData(runID, step.Source, resolvedParams)
   } else {
     return step.GotoAlt, fmt.Errorf("get step missing function or source")
   }

@@ -10,11 +10,6 @@ func (e *Engine) fetchSQL(runID string, ds DataSource) (map[string]interface{}, 
     return nil, err
   }
 
-  query := ds.Query
-  if (query == "") {
-    query = ds.Pattern
-  }
-
   rows, err := db.Query(ds.Query)
   if err != nil {
     return nil, err

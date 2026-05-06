@@ -114,10 +114,23 @@ func (e *Engine) handleLocationSignal(v *dbus.Signal) {
   }
 
   var horizAcc, vertAcc float64
-  if acc, ok := v.Body[5].(dbus.Variant); ok {
-    if val, ok := acc.Value().([]interface{}); ok && len(val) >= 3 {
-      horizAcc, _ = val[1].(float64)
-      vertAcc, _ = val[2].(float64)
+  horizAcc = -1
+  vertAcc = -1
+
+  if len(v.Body) > 5 {
+    var accData interface{} = v.Body[5]
+
+    if variant, ok := accData.(dbus.Variant); ok {
+      accData = variant.Value()
+    }
+
+    if val, ok := accData.([]interface{}); ok && len(val) >= 3 {
+      if h, ok := val[1].(float64); ok {
+        horizAcc = h
+      }
+      if vAcc, ok := val[2].(float64); ok {
+        vertAcc = vAcc
+      }
     }
   }
 

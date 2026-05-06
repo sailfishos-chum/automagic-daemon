@@ -211,7 +211,7 @@ func (e *Engine) ResolveDBusArg(typeCode string, val interface{}) interface{} {
   }
 }
 
-func (e *Engine) FetchData(runID string, sourceID string) (map[string]interface{}, error) {
+func (e *Engine) FetchData(runID string, sourceID string, params map[string]interface{}) (map[string]interface{}, error) {
   ds, exists := e.dataSources[sourceID]
   if !exists {
     return nil, fmt.Errorf("source %s not found", sourceID)
@@ -226,7 +226,7 @@ func (e *Engine) FetchData(runID string, sourceID string) (map[string]interface{
   case "file":
     raw, err = e.fetchFile(runID, ds)
   case "http":
-    raw, err = e.fetchHTTP(runID, ds)
+    raw, err = e.fetchHTTP(runID, ds, params)
   case "sqlite":
     raw, err = e.fetchSQL(runID, ds)
   case "mysql":
