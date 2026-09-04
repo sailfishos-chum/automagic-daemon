@@ -2,6 +2,7 @@ package main
 
 import (
   "encoding/json"
+  "fmt"
   "log"
   "net"
   "os"
@@ -172,6 +173,36 @@ func (e *Engine) processSocketCommand(conn net.Conn, enc *json.Encoder, req Sock
     } else {
       enc.Encode(SocketResponse{Ok: true})
     }
+
+  case "update_privileged_config":
+    pid, uid, err := getPeerCredentials(conn)
+    if err != nil {
+      enc.Encode(SocketResponse{Ok: false, Error: fmt.Sprintf("could not identify caller: %v", err)})
+      return
+    }
+
+    log.Printf("handleUnixConn - update_privileged_config requested by pid=%d uid=%d, checking polkit authorization", pid, uid)
+
+    authorized, err := e.checkPolkitAuthorization(polkitActionUpdatePrivilegedConfig, pid, uid)
+    if err != nil {
+      log.Printf("handleUnixConn - update_privileged_config - authorization check failed: %v", err)
+      enc.Encode(SocketResponse{Ok: false, Error: fmt.Sprintf("authorization check failed: %v", err)})
+      return
+    }
+    if !authorized {
+      log.Printf("handleUnixConn - update_privileged_config - denied by polkit")
+      enc.Encode(SocketResponse{Ok: false, Error: "not authorized"})
+      return
+    }
+
+    if err := e.writePrivilegedConfig(req.AllowedRunAs); err != nil {
+      log.Printf("handleUnixConn - update_privileged_config - write failed: %v", err)
+      enc.Encode(SocketResponse{Ok: false, Error: fmt.Sprintf("write failed: %v", err)})
+      return
+    }
+
+    log.Printf("handleUnixConn - update_privileged_config - success, allowed_run_as=%v", req.AllowedRunAs)
+    enc.Encode(SocketResponse{Ok: true})
 
   case "version":
     enc.Encode(SocketResponse{

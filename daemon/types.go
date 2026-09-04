@@ -19,6 +19,9 @@ type Engine struct {
   timer_cancels map[string]context.CancelFunc
   file_watcher_cancels map[string]context.CancelFunc
   state_trigger_cancels map[string]context.CancelFunc
+  http_trigger_cancels map[string]context.CancelFunc
+  ping_trigger_cancels map[string]context.CancelFunc
+  input_device_cancels map[string]context.CancelFunc
   location_cancel context.CancelFunc
   dataSources map[string]DataSource
   mqtt_brokers map[string]*MQTTBroker
@@ -63,6 +66,9 @@ type Transformation struct {
   Search        string                 `json:"search,omitempty"`
   Replace       string                 `json:"replace,omitempty"`
   Pattern       string                 `json:"pattern,omitempty"`
+  MatchPath     string                 `json:"match_path,omitempty"`
+  MatchValue    string                 `json:"match_value,omitempty"`
+  ExtractPath   string                 `json:"extract_path,omitempty"`
   Optional      bool                   `json:"optional,omitempty"`
   DecimalPlaces int                    `json:"decimal_places,omitempty"`
 }
@@ -104,6 +110,9 @@ type DataSource struct {
   CacheTTL          string                  `json:"cache_ttl,omitempty"`
   ContentType       string                  `json:"content_type,omitempty"`
   Payload           string                  `json:"payload,omitempty"`
+  Command           string                  `json:"command,omitempty"`
+  RunAs             string                  `json:"run_as,omitempty"`
+  Count             int                     `json:"count,omitempty"`
 }
 
 type TypedArg struct {
@@ -170,6 +179,7 @@ type Action struct {
   Retained    bool                   `json:"retained,omitempty"`
   Command     string                 `json:"command,omitempty"`
   Message     string                 `json:"message,omitempty"`
+  RunAs       string                 `json:"run_as,omitempty"`
 
   Host        string                 `json:"host,omitempty"`
   Port        string                 `json:"port,omitempty"`
@@ -182,11 +192,12 @@ type Action struct {
 }
 
 type SocketRequest struct {
-  Secret  string                 `json:"secret"`
-  Cmd     string                 `json:"cmd"`
-  Trigger string                 `json:"trigger,omitempty"`
-  Flow    string                 `json:"flow,omitempty"`
-  Vars    map[string]interface{} `json:"vars,omitempty"`
+  Secret       string                 `json:"secret,omitempty"`
+  Cmd          string                 `json:"cmd"`
+  Trigger      string                 `json:"trigger,omitempty"`
+  Flow         string                 `json:"flow,omitempty"`
+  Vars         map[string]interface{} `json:"vars,omitempty"`
+  AllowedRunAs []string               `json:"allowed_run_as,omitempty"`
 }
 
 type SocketResponse struct {

@@ -5,6 +5,7 @@ import (
   "time"
   "fmt"
   "strconv"
+  "strings"
   "os"
   "os/user"
   "path/filepath"
@@ -158,6 +159,10 @@ func (e *Engine) GetData() map[string]map[string]interface{} {
 }
 
 func (e *Engine) ResolveDBusArg(typeCode string, val interface{}) interface{} {
+  if inner, ok := strings.CutPrefix(typeCode, "v:"); ok {
+    return dbus.MakeVariant(e.ResolveDBusArg(inner, val))
+  }
+
   sVal, isString := val.(string)
   fVal, isFloat := val.(float64)
 
@@ -235,6 +240,10 @@ func (e *Engine) FetchData(runID string, sourceID string, params map[string]inte
     raw, err = e.fetchIMAP(runID, ds)
   case "location":
     raw, err = e.fetchLocation(runID, ds)
+  case "shell":
+    raw, err = e.fetchShell(runID, ds, params)
+  case "ping":
+    raw, err = e.fetchPing(runID, ds, params)
   default:
     return nil, fmt.Errorf("unsupported fetch type: %s", ds.Type)
   }
@@ -389,6 +398,9 @@ func (e *Engine) Stop() {
   e.StopMQTTTriggers()
   e.StopStateTriggers()
   e.StopFileTriggers()
+  e.StopHTTPTriggers()
+  e.StopPingTriggers()
+  e.StopInputTriggers()
 }
 
 func (e *Engine) Reload() error {
@@ -398,6 +410,9 @@ func (e *Engine) Reload() error {
   e.StopMQTTTriggers()
   e.StopStateTriggers()
   e.StopFileTriggers()
+  e.StopHTTPTriggers()
+  e.StopPingTriggers()
+  e.StopInputTriggers()
 
   if len(e.ConfigPathStatic) < 1 {
     if e.DiscoverUser() != nil {
@@ -429,7 +444,10 @@ func (e *Engine) Reload() error {
   e.StartTimerTriggers()
   e.StartStateTriggers()
   e.StartLocationTriggers()
-  
+  e.StartHTTPTriggers()
+  e.StartPingTriggers()
+  e.StartInputTriggers()
+
   return nil
 }
 

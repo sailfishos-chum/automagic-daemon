@@ -4,6 +4,7 @@ import (
   "fmt"
   "log"
   "maps"
+  "reflect"
   "strings"
   "strconv"
   "math"
@@ -33,7 +34,12 @@ func expandByTemplate(template string, vars_list ...map[string]interface{}) stri
       return "null"
     }
 
-    strVal := fmt.Sprintf("%v", val)
+    var strVal string
+    if f, ok := val.(float64); ok && f == math.Trunc(f) && !math.IsInf(f, 0) {
+      strVal = strconv.FormatInt(int64(f), 10)
+    } else {
+      strVal = fmt.Sprintf("%v", val)
+    }
 
     if len(parts) == 1 {
       return strVal
@@ -131,7 +137,56 @@ func applyTransformations(transformations []Transformation, value_maps map[strin
         }
 
         log.Printf("applyTransformations - copy: %s = %v -> %s = %v", t.In, val, t.Out, vars_out[t.Out])
-        
+
+      case "find_in_array":
+        arr, ok := getNestedValue(vars_in, t.In)
+        if !ok {
+          if t.Optional {
+            log.Printf("applyTransformations - find_in_array: optional array not found: %s", t.In)
+            continue
+          }
+          log.Printf("applyTransformations - find_in_array: array not found: %s - ending transformations", t.In)
+          return false
+        }
+
+        rv := reflect.ValueOf(arr)
+        if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+          if t.Optional {
+            log.Printf("applyTransformations - find_in_array: %s is not an array", t.In)
+            continue
+          }
+          log.Printf("applyTransformations - find_in_array: %s is not an array - ending transformations", t.In)
+          return false
+        }
+
+        found := false
+        for i := 0; i < rv.Len(); i++ {
+          elem := map[string]interface{}{"item": rv.Index(i).Interface()}
+
+          matchVal, matchOk := getNestedValue(elem, "item/"+t.MatchPath)
+          if !matchOk || fmt.Sprintf("%v", matchVal) != t.MatchValue {
+            continue
+          }
+
+          outVal, outOk := getNestedValue(elem, "item/"+t.ExtractPath)
+          if outOk {
+            vars_out[t.Out] = outVal
+            found = true
+          }
+          break
+        }
+
+        if !found {
+          if t.Optional {
+            log.Printf("applyTransformations - find_in_array: no match for %s == %s in %s", t.MatchPath, t.MatchValue, t.In)
+            continue
+          }
+          log.Printf("applyTransformations - find_in_array: no match for %s == %s in %s - ending transformations", t.MatchPath, t.MatchValue, t.In)
+          return false
+        }
+
+        log.Printf("applyTransformations - find_in_array: %s where %s == %s -> %s = %v", t.In, t.MatchPath, t.MatchValue, t.Out, vars_out[t.Out])
+
       case "template":
         if t.In == "" {
           if t.Optional {
@@ -692,7 +747,16 @@ func getNestedValue(data map[string]interface{}, path string) (interface{}, bool
       }
       current = c[idx]
     default:
-      return nil, false
+      rv := reflect.ValueOf(current)
+      if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+        return nil, false
+      }
+      idxStr := strings.TrimPrefix(part, "arg")
+      idx, err := strconv.Atoi(idxStr)
+      if err != nil || idx < 0 || idx >= rv.Len() {
+        return nil, false
+      }
+      current = rv.Index(idx).Interface()
     }
   }
 

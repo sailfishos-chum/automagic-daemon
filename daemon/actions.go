@@ -289,18 +289,33 @@ func Action_http(runID string, e *Engine, a Action, vars map[string]interface{},
 }
 
 func Action_shell(runID string, e *Engine, a Action, vars map[string]interface{}, stepID string, flowID string) error {
-  if a.Command == "" {
+  commandTemplate := a.Command
+  if override, ok := vars["command"].(string); ok && override != "" {
+    commandTemplate = override
+  }
+
+  if commandTemplate == "" {
     err := fmt.Errorf("no command provided")
     log.Printf("[%s] Action_shell - %v", runID, err)
     return err
   }
 
-  cmdStr := expandByTemplate(a.Command, vars)
+  cmdStr := expandByTemplate(commandTemplate, vars)
   cmd := exec.Command("sh", "-c", cmdStr)
 
-  if e.SessionUser != nil {
-    uid, _ := strconv.Atoi(e.SessionUser.Uid)
-    gid, _ := strconv.Atoi(e.SessionUser.Gid)
+  runAsUser := e.SessionUser
+  if a.RunAs != "" && (e.SessionUser == nil || a.RunAs != e.SessionUser.Username) {
+    privUser, err := e.resolvePrivilegedUser(a.RunAs)
+    if err != nil {
+      log.Printf("[%s] Action_shell - run_as %q denied: %v", runID, a.RunAs, err)
+      return fmt.Errorf("run_as %q denied: %v", a.RunAs, err)
+    }
+    runAsUser = privUser
+  }
+
+  if runAsUser != nil {
+    uid, _ := strconv.Atoi(runAsUser.Uid)
+    gid, _ := strconv.Atoi(runAsUser.Gid)
 
     cmd.SysProcAttr = &syscall.SysProcAttr{
       Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)},
@@ -308,15 +323,13 @@ func Action_shell(runID string, e *Engine, a Action, vars map[string]interface{}
 
     cmd.Env = os.Environ()
     cmd.Env = append(cmd.Env,
-      "HOME="+e.SessionUser.HomeDir,
-      "USER="+e.SessionUser.Username,
-      "LOGNAME="+e.SessionUser.Username,
+      "HOME="+runAsUser.HomeDir,
+      "USER="+runAsUser.Username,
+      "LOGNAME="+runAsUser.Username,
       fmt.Sprintf("DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%d/dbus/user_bus_socket", uid),
       "PATH=/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin",
     )
   }
-
-  log.Printf("[%s] Action_shell - executing as %s: %s", runID, e.SessionUser.Username, cmdStr)
 
   output, err := cmd.CombinedOutput()
   if err != nil {

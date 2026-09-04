@@ -18,6 +18,8 @@ func (f *Flow) Execute(runID string, e *Engine, initialVars map[string]interface
     ctxVars[k] = v
   }
   ctxVars["_run_id"] = runID
+  ctxVars["_user"] = e.Username
+  ctxVars["_user_id"] = e.UID
 
   stepMap := make(map[string]int)
   for i, s := range f.Steps {
